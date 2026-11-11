@@ -1,0 +1,15 @@
+# 构建产物
+bin/
+plugin/bin/
+*.tgz
+
+# 运行时/调试产物
+.tmp/
+*.log
+
+# 依赖
+node_modules/
+
+# 编辑器/agent 私有
+.opencode/
+.vscode/
