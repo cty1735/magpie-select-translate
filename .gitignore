@@ -1,6 +1,5 @@
-# 构建产物
-bin/
-plugin/bin/
+# 构建产物（只忽略仓库根的 bin/，plugin/bin 要提交）
+/bin/
 *.tgz
 
 # 运行时/调试产物
