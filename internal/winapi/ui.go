@@ -25,6 +25,7 @@ var (
 	ProcScreenToClient   = user32.NewProc("ScreenToClient")
 	ProcShowScrollBar    = user32.NewProc("ShowScrollBar")
 	ProcFillRect         = user32.NewProc("FillRect")
+	ProcFrameRect        = user32.NewProc("FrameRect")
 	ProcBeginPaint       = user32.NewProc("BeginPaint")
 	ProcEndPaint         = user32.NewProc("EndPaint")
 	ProcInvalidateRect   = user32.NewProc("InvalidateRect")
@@ -138,14 +139,7 @@ func WindowRect(hwnd uintptr) Rect {
 	return r
 }
 
-// ShowScrollBar 控制滚动条显隐（内容不够长时藏掉，省得右侧一条空槽）。
-func ShowScrollBar(hwnd uintptr, show bool) {
-	v := uintptr(0)
-	if show {
-		v = 1
-	}
-	ProcShowScrollBar.Call(hwnd, SB_VERT, v)
-}
+
 
 // UTF16 返回字符串的 UTF-16 指针。
 // 调用方必须把返回值活到 Win32 调用结束（用 runtime.KeepAlive），
@@ -270,6 +264,11 @@ func Invalidate(hwnd uintptr) {
 	ProcInvalidateRect.Call(hwnd, 0, 0)
 }
 
+// InvalidateErase 让整个窗口连背景一起重画；控件换文本或改变大小靠这个清掉旧像素。
+func InvalidateErase(hwnd uintptr) {
+	ProcInvalidateRect.Call(hwnd, 0, 1)
+}
+
 // TrackLeave 让窗口在鼠标离开时收到 WM_MOUSELEAVE（默认收不到）。
 func TrackLeave(hwnd uintptr) {
 	t := trackMouseEvent{CbSize: uint32(unsafe.Sizeof(trackMouseEvent{})), DwFlags: TME_LEAVE, HwndTrack: hwnd}
@@ -279,6 +278,23 @@ func TrackLeave(hwnd uintptr) {
 // FillRect 用画刷填一个矩形。
 func FillRect(hdc uintptr, r *Rect, brush uintptr) {
 	ProcFillRect.Call(hdc, uintptr(unsafe.Pointer(r)), brush)
+}
+
+// FrameRect 用画刷描一个 1px 矩形边框。
+func FrameRect(hdc uintptr, r *Rect, brush uintptr) {
+	ProcFrameRect.Call(hdc, uintptr(unsafe.Pointer(r)), brush)
+}
+
+// TextLeft 左对齐画一行，超出裁掉加省略号（标题用，居中会看不清语言对）。
+func TextLeft(hdc uintptr, text string, r *Rect, font, color uintptr) {
+	winapiSetTextColor(hdc, color)
+	ptr := UTF16(text)
+	defer runtime.KeepAlive(ptr)
+	old, _, _ := ProcSelectObject.Call(hdc, font)
+	defer ProcSelectObject.Call(hdc, old)
+	ProcDrawTextW.Call(hdc, uintptr(unsafe.Pointer(ptr)), ^uintptr(0),
+		uintptr(unsafe.Pointer(r)),
+		DT_LEFT|DT_VCENTER|DT_SINGLELINE|DT_NOPREFIX|DT_END_ELLIPSIS)
 }
 
 // TextOut 在矩形里居中画一行文字。

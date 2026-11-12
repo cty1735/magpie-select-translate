@@ -30,7 +30,7 @@ if (files.length === 0) {
 }
 const message =
   process.env.PUSH_MESSAGE ||
-  "更新插件包到 0.1.1（已发布 npm：magpie-select-translate@0.1.1）"
+  "更新插件包到 0.2.0（已发布 npm：magpie-select-translate@0.2.0）"
 
 const head = await api(`/repos/${OWNER}/${REPO}/commits/main`)
 const baseTree = head.commit.tree.sha

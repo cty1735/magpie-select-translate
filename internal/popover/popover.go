@@ -46,15 +46,17 @@ type Popover struct {
 	thread uint32
 	dpi    uint32
 
-	hHeader, hBody, hFooter uintptr
+	hBody, hFooter uintptr
 	fontBig, fontSmall      uintptr
 	bgBrush, hoverBrush     uintptr
-	pressBrush              uintptr
+	pressBrush, borderBrush uintptr
 	fg, dim                 uintptr
 
 	clientRect winapi.Rect
 	copyRect   winapi.Rect
 	closeRect  winapi.Rect
+	headerRect winapi.Rect
+	headerText string
 	hoverBtn   int
 	pressBtn   int
 	copyLabel  string
@@ -82,7 +84,7 @@ type Popover struct {
 // New 必须在 LockOSThread 的主线程调用；之后所有窗口操作都在这个消息循环线程上。
 func New() (*Popover, error) {
 	p := &Popover{thread: winapi.CurrentThreadID(), dpi: winapi.DPI(0), copyLabel: "复制"}
-	p.fg, p.dim, p.bgBrush, p.hoverBrush, p.pressBrush = theme()
+	p.fg, p.dim, p.bgBrush, p.hoverBrush, p.pressBrush, p.borderBrush = theme()
 
 	className := winapi.UTF16("magpie-translate-popover")
 	title := winapi.UTF16("translate")
@@ -116,15 +118,12 @@ func New() (*Popover, error) {
 	p.fontBig = winapi.CreateFontPx(p.px(15), false)
 	p.fontSmall = winapi.CreateFontPx(p.px(12), false)
 
-	p.hHeader = p.child("STATIC", winapi.WS_CHILD|winapi.WS_VISIBLE|winapi.SS_LEFT)
 	p.hBody = p.child("EDIT", winapi.WS_CHILD|winapi.WS_VISIBLE|winapi.WS_VSCROLL|
 		winapi.ES_MULTILINE|winapi.ES_READONLY|winapi.ES_AUTOVSCROLL|winapi.ES_NOHIDESEL)
 	p.hFooter = p.child("STATIC", winapi.WS_CHILD|winapi.WS_VISIBLE|winapi.SS_LEFT)
 
 	winapi.SetFont(p.hBody, p.fontBig)
-	for _, h := range []uintptr{p.hHeader, p.hFooter} {
-		winapi.SetFont(h, p.fontSmall)
-	}
+	winapi.SetFont(p.hFooter, p.fontSmall)
 
 	p.offscreen(hwnd)
 	// 先挪到屏幕外再显示：窗口必须是 WS_VISIBLE 才会绘制，隐藏状态下控件不会画。
@@ -277,7 +276,10 @@ func (p *Popover) hookKeyboard() {
 	p.hook = h
 }
 
-func (p *Popover) setHeader(s string) { winapi.SetWindowText(p.hHeader, s) }
+func (p *Popover) setHeader(s string) {
+	p.headerText = s
+	winapi.Invalidate(p.hwnd)
+}
 
 // layout 按内容量算高度并摆放所有控件（全部用物理像素）。
 func (p *Popover) layout() {
@@ -300,25 +302,31 @@ func (p *Popover) layout() {
 		Right: p.closeRect.Left - int32(gap), Bottom: p.closeRect.Bottom,
 	}
 
-	winapi.ProcMoveWindow.Call(p.hHeader, uintptr(pad), uintptr(p.px(9)),
-		uintptr(int(p.copyRect.Left)-pad-p.px(6)), uintptr(headerH), 1)
+	// 按钮和标题都在父窗口自绘：STATIC 子控件会挡住拖动命中测试，
+	// 而且设了 WS_EX_TRANSPARENT 后标题经常整块不刷（残影、字消失）。
+	p.headerRect = winapi.Rect{
+		Left: int32(pad), Top: int32(p.px(6)),
+		Right: p.copyRect.Left - int32(gap), Bottom: p.copyRect.Bottom,
+	}
 
 	bodyH := p.px(minBodyLogical)
-	scrolled := false
 	if p.body != "" {
-		bodyH = winapi.MeasureText(p.hwnd, p.body, p.fontBig, inner-p.px(10), p.px(maxBodyLogical)) + p.px(6)
-		if bodyH < p.px(minBodyLogical) {
-			bodyH = p.px(minBodyLogical)
+		h := winapi.MeasureText(p.hwnd, p.body, p.fontBig, inner-p.px(10), p.px(maxBodyLogical)) + p.px(6)
+		// 高度按整行取整：半行会被窗口下边缘切掉，看着像内容丢了。
+		if line := winapi.MeasureText(p.hwnd, "测", p.fontBig, 1000, 1000); line > 1 {
+			h = h / line * line
 		}
-		if bodyH > p.px(maxBodyLogical) {
-			bodyH = p.px(maxBodyLogical)
-			scrolled = true
+		if h < p.px(minBodyLogical) {
+			h = p.px(minBodyLogical)
 		}
+		if h > p.px(maxBodyLogical) {
+			h = p.px(maxBodyLogical)
+		}
+		bodyH = h
 	}
 	bodyY := p.px(9) + headerH
 	winapi.ProcMoveWindow.Call(p.hBody, uintptr(pad), uintptr(bodyY), uintptr(inner), uintptr(bodyH), 1)
-	// 内容超过可视高度才给滚动条，短文本不留一条空槽。
-	winapi.ShowScrollBar(p.hBody, scrolled)
+	// WS_VSCROLL 常驻：短文本时滚动条是灰的，长文本可以拖，用户不用猜有没有更多内容。
 
 	y := bodyY + bodyH + p.px(4)
 	if p.source != "" {
@@ -335,7 +343,8 @@ func (p *Popover) layout() {
 	height := y + pad - 4
 	p.clientRect = winapi.Rect{Right: int32(width), Bottom: int32(height)}
 	p.place(width, height)
-	winapi.Invalidate(p.hwnd)
+	// 整窗擦除重绘：只靠 MoveWindow 的重绘位，高度变小/内容滚动时会留下上一次的残影。
+	winapi.InvalidateErase(p.hwnd)
 }
 
 // place 按鼠标位置摆放主窗口，超出工作区就翻到另一侧。
@@ -380,6 +389,8 @@ func (p *Popover) wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_PAINT:
 		hdc, ps := winapi.BeginPaint(hwnd)
 		winapi.FillRect(hdc, &p.clientRect, p.bgBrush)
+		winapi.FrameRect(hdc, &p.clientRect, p.borderBrush)
+		winapi.TextLeft(hdc, p.headerText, &p.headerRect, p.fontSmall, p.dim)
 		p.paintButton(hdc, p.copyRect, idCopy, p.copyLabel)
 		p.paintButton(hdc, p.closeRect, idClose, "✕")
 		winapi.EndPaint(hwnd, ps)
@@ -437,7 +448,9 @@ func (p *Popover) wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		if !p.visible {
 			break
 		}
-		pt := clientPoint(lp)
+		// WM_NCHITTEST 的 lParam 是屏幕坐标（不是客户区坐标），早先直接当客户区用，
+	// 于是 pt.Y 永远是个很大的数，顶栏永远命中不到 HTCAPTION，窗口就拖不动了。
+	pt := winapi.ScreenPointToClient(hwnd, clientPoint(lp))
 		if p.buttonAt(pt) != 0 {
 			return winapi.HTCLIENT
 		}
