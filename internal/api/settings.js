@@ -47,11 +47,12 @@ async function load() {
   $("model").value = cfg.model || ""
   $("glossary").value = cfg.glossary || ""
   status("")
+  // 先读模型：这一步会解析网关，之后 ping 里的网关地址才是真的（否则一直显示“探测中”）
+  await loadModels().catch((e) => { $("modelTip").textContent = "读取网关模型失败：" + e.message })
   try {
     const ping = await api("/api/ping")
     $("foot").textContent = `helper ${ping.version} · 127.0.0.1:${ping.port} · 网关 ${ping.gateway || "探测中"}`
   } catch { /* 版本信息只是给自己看的 */ }
-  await loadModels().catch((e) => { $("modelTip").textContent = "读取网关模型失败：" + e.message })
 }
 
 async function save() {

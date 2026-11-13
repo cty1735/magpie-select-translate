@@ -21,7 +21,7 @@ import (
 	"magpie-translate/internal/winapi"
 )
 
-const Version = "0.3.0"
+const Version = "0.3.1"
 const maxTextRunes = 5000
 
 var ErrTooShort = errors.New("没选中文字")

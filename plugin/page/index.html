@@ -13,30 +13,37 @@
   p { margin: 0 0 8px; font-size: 12px; opacity: .7; }
   code { font-family: Consolas, monospace; }
 </style>
+<!-- magpie 的页面桥：页面必须让它报到（hello），10 秒没报到 magpie 就当页面没响应 -->
+<script src="_magpie/bridge.js"></script>
 </head>
 <body>
   <h1>划词翻译</h1>
   <p id="said">正在打开设置页…</p>
-  <p>如果一直没跳转，说明 helper 没起来：设置页由 helper 提供，模型列表也要从本地网关读。
-     跑一次 <code>scripts\install.ps1</code>，或重开一次 magpie。</p>
+  <p>设置页由 helper 提供（模型列表要从本地网关读）。如果一直没跳转，说明 helper 没起来：
+    跑一次 <code>scripts\install.ps1</code>，或重开一次 magpie。</p>
 
   <script>
     // 带路页：页面在沙箱里（connect-src 'none'），除了解释跳转什么网都联不上，
     // 所以不能先探活，直接跳到 helper 自己的设置页——那边能读网关模型、能写设置。
     (async () => {
-      const fallback = 3477
-      let port = fallback
+      // 碰 magpie.ready 才会给 magpie 发 hello（bridge.js 里就是 call("hello")），
+      // 少了这一步 magpie 10 秒后显示“此页面已停止工作 / 页面没有响应”。
+      // 只是别被它拖住跳转：magpie 没答就自己走。
+      await Promise.race([window.magpie?.ready, new Promise((r) => setTimeout(r, 1500))])
+
+      let port = 3477
       try {
         const opts = await window.magpie?.options?.get?.()
         if (opts && Number(opts.port) > 0) port = Number(opts.port)
       } catch { /* 没有宿主就用默认端口 */ }
-      const target = "http://127.0.0.1:" + port + "/"
-      // WebKit/WebView2 跳不过去时不报错，页面会停在“正在打开”。5 秒后还没被替换就提示一下。
+
+      // WebKit/WebView2 跳不过去时不报错，页面会一直停在“正在打开”：5 秒后提示一下。
       setTimeout(() => {
         const said = document.getElementById("said")
         if (said) said.textContent = "没能连上 helper（127.0.0.1:" + port + "）"
       }, 5000)
-      location.replace(target)
+
+      location.replace("http://127.0.0.1:" + port + "/")
     })()
   </script>
 </body>
