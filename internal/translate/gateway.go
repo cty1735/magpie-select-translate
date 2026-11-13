@@ -67,6 +67,20 @@ func (g *Gateway) Resolve(ctx context.Context) (Probe, error) {
 	return Probe{}, ErrGatewayDown
 }
 
+// Models 返回网关当前的模型 id 列表（第一个即网关默认模型）。
+func (g *Gateway) Models(ctx context.Context) ([]string, Probe, error) {
+	p, err := g.Resolve(ctx)
+	if err != nil {
+		return nil, p, err
+	}
+	ids, err := listModels(ctx, p.Base)
+	if err != nil {
+		g.Invalidate() // 下次重新探测，magpie 换了端口也不用重启 helper
+		return nil, p, ErrGatewayDown
+	}
+	return ids, p, nil
+}
+
 // Known 返回已解析的网关地址（未解析过则返回配置里的 override，仅用于 /api/ping 展示）。
 func (g *Gateway) Known() string {
 	g.mu.Lock()

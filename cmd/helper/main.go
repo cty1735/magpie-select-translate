@@ -108,23 +108,34 @@ func main() {
 		defer cfgMu.RUnlock()
 		return current
 	}
+	// 热键只能在 UI 线程重注册（WM_HOTKEY 投给注册它的线程队列），浮窗建好后才有实现。
+	var regHotkey = func(string) error { return errors.New("helper 还在启动，稍后再试") }
 	apply := func(next store.Settings) error {
 		if next.Port == 0 {
 			next.Port = cfg.Port
 		}
+		cfgMu.RLock()
+		prev := current
+		cfgMu.RUnlock()
+		hotkeyChanged := next.Hotkey != prev.Hotkey
+		if hotkeyChanged {
+			if err := regHotkey(next.Hotkey); err != nil {
+				return err // 注册不上就不落盘，页面上的值和实际行为保持一致
+			}
+		}
 		if err := next.Save(); err != nil {
+			if hotkeyChanged {
+				_ = regHotkey(prev.Hotkey)
+			}
 			return err
 		}
 		cfgMu.Lock()
-		hotkeyChanged := next.Hotkey != current.Hotkey
 		current = next
 		cfgMu.Unlock()
 		fresh := pick.New(next.Blacklist, next.RestoreClipboard)
 		picker.Blacklist = fresh.Blacklist
 		picker.Restore = fresh.Restore
-		if hotkeyChanged {
-			event("settings: hotkey change needs restart")
-		}
+		event("settings applied: hotkey=%s model=%q target=%s", next.Hotkey, next.Model, next.Target)
 		return nil
 	}
 
@@ -138,6 +149,7 @@ func main() {
 		Picker:   picker,
 		Settings: settings,
 		Apply:    apply,
+		Token:    api.NewToken(),
 	}
 	go func() {
 		event("http listening on 127.0.0.1:%d", cfg.Port)
@@ -164,6 +176,19 @@ func main() {
 		os.Exit(1)
 	}
 	event("hotkey %s registered", settings().Hotkey)
+
+	// 设置页改了热键就地换，不用重启 helper：Post 把活派给 UI 线程。
+	regHotkey = func(hk string) error {
+		prev := settings().Hotkey
+		done := make(chan error, 1)
+		pop.Post(func() { done <- setHotkey(hk, prev) })
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(3 * time.Second):
+			return errors.New("界面线程无响应，热键没有改")
+		}
+	}
 
 	// 取词在后台 goroutine 跑，消息循环里绝不做 IO。
 	pop.OnHotkey = func() { translateSelection(pop, srv, picker, event) }
@@ -229,6 +254,24 @@ func label(target string, cached, truncated bool) string {
 		s += " · 已截断"
 	}
 	return s
+}
+
+// setHotkey 换生效的热键，只能在 UI 线程调用（RegisterHotKey(hWnd=0) 把 WM_HOTKEY
+// 投给调用它的那个线程的队列）。新的注册不上就把旧的装回去，别让用户连旧的也没了。
+func setHotkey(next, prev string) error {
+	mods, vk, err := ParseHotkey(next)
+	if err != nil {
+		return err
+	}
+	winapi.ProcUnregisterHotKey.Call(0, hotkeyID)
+	r, _, callErr := winapi.ProcRegisterHotKey.Call(0, hotkeyID, uintptr(mods), uintptr(vk))
+	if r != 0 {
+		return nil
+	}
+	if pm, pv, e := ParseHotkey(prev); e == nil && prev != next {
+		winapi.ProcRegisterHotKey.Call(0, hotkeyID, uintptr(pm), uintptr(pv))
+	}
+	return fmt.Errorf("%s 注册失败（可能被别的程序占用）：%v", next, callErr)
 }
 
 // ParseHotkey 把 "Alt+D" 之类的字符串转成 RegisterHotKey 的 (modifiers, vk)。

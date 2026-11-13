@@ -297,12 +297,22 @@ export default {
 
 ### 6.4 设置页（iframe 内能做什么）
 
-- `await magpie.ready` → `magpie.options.get()` 渲染表单 → 保存走 `magpie.options.set()`（**节流 ≥1s**，别每次按键都写）；
-- 模型下拉用 `magpie.read("providers:list")`（需 `permissions`），拿不到就让用户手填 `provider/model`；
-- **不能** `fetch` helper 的 `/api/ping` 来做"已连接"指示（CSP 禁止）；要么由 `server` hook 探活后写进 options（如 `lastStart`），要么干脆不显示；
-- 想要真实状态（今日译文字数、当前模型、helper 是否活着）→ 用 `panels` 槽位或干脆在 magpie 外做托盘菜单。
+沙箱页面**发不出任何网络请求**（`connect-src 'none'`，连 `no-cors` 也拒），也拿不到模型列表
+（`magpie.read("providers:list")` 只给 provider 的 id/name，没有 read 能列模型）。
+所以设置页不在 magpie 页面里做：
 
-降级方案：如果用户不想装 helper，设置页退化为"粘贴框翻译/文本域 + 结果区"，仍能 `magpie.options` + 一次 `location.replace(service)` 跳到 helper 的本地网页版。
+- `page/index.html` 只当一个**跳板**：`magpie.options.get()` 取 `port` → `location.replace("http://127.0.0.1:<port>/")`
+  跳到 helper 自带的设置页（page-chat 也是这个路子）。跳转失败不会报错，页面自己用 5s 定时器换成提示文案。
+- helper 的 `GET /` 返回内嵌的设置页（`internal/api/settings.html` + `settings.js`）：
+  - 模型用 `<input list="models">` + `<datalist>`，选项来自 `GET /api/models` 实时拉的 `/v1/models`（当前 134 个），可搜索、留空=网关默认；
+  - 热键、目标语言、术语表都在这一页，一个「保存并生效」按钮 `PUT /api/settings`：模型/语言/术语表立即换、热键在 UI 线程重新 `RegisterHotKey`（被别的程序占用会红字报错并回滚）；
+  - **没有端口字段**，避免旧 helper 还占着端口时两个进程抢热键。
+- 鉴权：跳转后的文档是 opaque origin（`Origin: null`），必须走 CORS。helper 只在请求带
+  `X-Helper-Token`（启动时 `crypto/rand` 生成，注入到 `settings.js`）时才放行带 Origin 的请求，
+  并回显 `Access-Control-Allow-Origin`；没令牌一律 403，写请求仍必须 `application/json`。
+
+降级：helper 没起来时跳板页停在提示上（`scripts\install.ps1` 或重开 magpie 即可拉起）。
+远程访问（magpie web）不支持：helper 只听 `127.0.0.1`，也不声明 `page.service`。
 
 ### 6.5 给 agent 的 MCP 工具（顺带）
 
@@ -312,30 +322,36 @@ export default {
 
 ## 7. helper 的本地接口
 
-只监听 `127.0.0.1`，校验 `Host`/`Origin`（挡浏览器 CSRF），启动时生成随机 token 放 `/api/ping` 之外的路径（可选）。
+只监听 `127.0.0.1`，校验 `Host`，带 `Origin` 的请求必须带 `X-Helper-Token`（挡浏览器 CSRF），写请求必须是 `application/json`。
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/ping` | `{ok:true, version, port, gateway}` |
+| GET | `/api/ping` | `{ok:true, version, port, gateway, hotkey}` |
 | POST | `/api/translate` | `{text, target?, model?}` → `text/event-stream`，逐块 `data: {"delta":"…"}` |
 | POST | `/api/selection` | 触发一次取词（调试/给页面按钮用） |
-| GET/PUT | `/api/settings` | 读/写 helper 侧设置（与 magpie options 互通） |
-| GET | `/` | 网页版翻译界面（无插件也能用） |
+| GET/PUT | `/api/settings` | 读/写 helper 侧设置（`PUT` 立即生效，热键当场重注册） |
+| GET | `/api/models` | `{models:[…], default, gateway, current}`，实时拉网关 `/v1/models` |
+| GET | `/` `/settings` | helper 内嵌的设置页（含 `/settings.js`，注入 token） |
 
 ---
 
-## 8. 配置项（写进 `magpie.options`）
+## 8. 配置项
+
+`plugin/package.json` 的 `magpie.options` 只剩 `port`（跳板用来找 helper）：
+`{ "port": 3477 }`。其余设置由 helper 自己的 `%LOCALAPPDATA%\magpie-translate\settings.json`
+持有、在 helper 的设置页（`GET /`）里改，插件宿主重启不会覆盖。
 
 | key | 默认 | 说明 |
 |---|---|---|
-| `port` | 3477 | helper 端口，3477–3480 自动顺延 |
+| `port`（options） | 3477 | helper 端口，只在跳板里用 |
 | `model` | `""` | `provider/model`，空=用网关第一个可用 |
-| `target` | `auto` | `auto` / `zh-CN` / `English` / 具体语言 |
+| `target` | `auto` | `auto` / `zh` / `en` |
 | `trigger` | `hotkey` | `hotkey` / `select`（划词即弹） / `both` |
-| `hotkey` | `Alt+D` | 全局热键 |
-| `glossary` | `""` | 术语表，一行 `原文=译文` |
+| `hotkey` | `Alt+D` | 全局热键（保存时当场重注册） |
+| `glossary` | `""` | 术语表，一行 `原文=译文`，`#` 开头为注释 |
 | `blacklist` | 内置 | 取词黑名单进程名 |
-| `maxChars` | 5000 | 超长截断 |
+| `restoreClipboard` | `true` | 取词后还原剪贴板 |
+| `gateway` | `""` | 覆盖网关地址（空=自动发现） |
 
 ---
 

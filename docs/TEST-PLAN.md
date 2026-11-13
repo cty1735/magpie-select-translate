@@ -112,7 +112,7 @@ ALL PASS
 | E1 | 记事本取词 | 记事本贴文本→`Ctrl+A`→`GET /api/selection` | `app=notepad.exe via=clipboard`，文本=选中内容 | PASS，`ms=93`，文本正确 |
 | E2 | 剪贴板还原 | 剪贴板写 `ORIGINAL-CLIP`→触发取词→读剪贴板 | 仍为 `ORIGINAL-CLIP` | PASS |
 | E3 | 热键全链路 | 选区→`Alt+D` | 日志 `pick ok`，浮窗出现在鼠标右下方 | PASS（`chars=46`，浮窗截图与窗口文本探针均确认） |
-| E4 | 浮窗内容 | 探针读子控件文本 | 头部 `EN → 中文`，正文中文译文，底部原文 | PASS：`你好，世界，这是一个简短的翻译测试。` / `Hello world, this is a short translation test.` |
+| E4 | 浮窗内容 | 探针读子控件文本 | 头部 `EN → 中文`，正文中文译文，顶部原文（2026-11-13 起原文从底部挪到顶部，与译文共用一个滚动条） | PASS：`你好，世界，这是一个简短的翻译测试。` / `Hello world, this is a short translation test.` |
 | E5 | 流式渲染 | 观察浮窗逐字出现 | 首字 < 1.5s，随后继续追加 | PASS（截图两个时刻内容不同） |
 | E6 | 缓存标记 | 同文连按两次热键 | 第二次几乎立即出现，头部带 `· 缓存` | PASS（`cached:true`，15~22ms） |
 | E7 | 未选中文字 | 不选字按热键 | 浮窗显示「没选中文字」，不崩 | PASS（`pick failed ... err=没选中文字`） |
@@ -161,6 +161,22 @@ ALL PASS
 | B9 | 长文本/上游繁忙时浮窗长时间停在「翻译中…」，看起来像卡死 | 报错/结果只有终态，没有中间反馈 | 加 5s 看门狗：每 5s 记 `translate waiting Ns` 并把标题改成「等待上游… Ns」 |
 | B10 | 浮窗会莫名其妙自己消失 | Esc 钩子里把 `lParam`（KBDLLHOOKSTRUCT 指针）的低字节当按键码：任何键只要地址低字节撞上 `0x1B` 就被当成 Esc | 正确解引用 `KBDLLHOOKSTRUCT.VkCode` 再比较 |
 | B11 | 按钮丑、没有点击反馈，浮窗拖不动 | 用的是系统 BUTTON 控件（Win11 经典样式 + 焦点虚线框）；浮窗没做命中测试 | 去掉 BUTTON 子窗口，改父窗口自绘两块矩形：hover 底色 + 文字变亮 + 手型光标（WM_SETCURSOR）、按下更深；顶部 34px 返回 `HTCAPTION` 支持拖动，拖过之后内容变化只改高度不跳回鼠标旁 |
+| B12 | 长原文看不全：底部原文只显示 3 行就被裁掉，也没有滚动条 | 原文单独占一个 3 行高的 `STATIC` 控件，`MeasureText` 结果被硬夹到 40px，`STATIC` 本身不能滚动 | 删掉底部 `STATIC`，原文 + 译文合成一段文本放进同一个 `EDIT`（原文在上、译文追加在下），滚轮消息在父窗口转给 `EDIT`，内容区超过 `maxBodyLogical`(340) 只出滚动条、窗口不再长高 |
+
+## 7.1 设置页搬进 helper（0.3.0，2026-11-13 实测）
+
+| # | 用例 | 步骤 | 期望 | 结果 |
+|---|---|---|---|---|
+| S1 | 模型列表 | `GET /api/models` | 实时拉网关 `/v1/models` | PASS：`count=134`，`default=group/deepseek-v4.1-flash`，`gateway=http://127.0.0.1:3425` |
+| S2 | 设置页 | `GET /` | 返回内嵌 HTML，引用 `/settings.js` | PASS：200，2545 字节（未设 `X-Frame-Options`，否则 magpie 的 iframe 会白屏） |
+| S3 | 令牌注入 | `GET /settings.js` | `const TOKEN = "<32 hex>"`，无 `__TOKEN__` 残留 | PASS |
+| S4 | 无令牌跨源写 | `PUT /api/settings` 带 `Origin: null`、无令牌 | 403 | PASS |
+| S5 | 预检 | `OPTIONS` + `Origin: null` | 204，`ACAH` 含 `x-helper-token` | PASS |
+| S6 | 带令牌写 | 改热键 `Ctrl+Alt+J` | 200，`/api/settings` 与 settings.json 都是新值，日志 `settings applied` | PASS |
+| S7 | 热键被占用 | 改 `Ctrl+Alt+T`（已被别的程序注册） | 500 + 红字「注册失败（可能被别的程序占用）」，热键回滚到旧值、**不落盘** | PASS |
+| S8 | 非法热键 | 改 `Alt+Nope` | 拒绝，settings.json 不变 | PASS |
+| S9 | 保存即生效 | 改模型/语言/术语表后不重启 helper 直接按热键 | 用新配置翻译 | PASS（`apply` 直接换内存值 + 重建 picker，日志 `settings applied`） |
+| S10 | 热键跨进程存在 | 保存新热键后切到记事本按它 | 浮窗出现 | 注册成功（200 即 `RegisterHotKey` 返回成功，且是在 UI 线程注册，与启动路径同一个消息队列）；**真机按键未人工验**，见第 8 节 |
 
 ---
 
@@ -176,6 +192,8 @@ ALL PASS
 | R6 | `go vet` 对 `GlobalLock` 返回值报 `possible misuse of unsafe.Pointer` | 这是 Win32 唯一可行写法 | `go build` 正常；如需 CI 静音，把 clip 相关文件排除 unsafeptr 检查 |
 | R7 | 150% DPI / 多屏未实测 | 浮窗可能位置或字号偏 | 代码按 `GetDpiForWindow` + 工作区翻转写，需要实机确认 |
 | R8 | 前景窗口被其他程序抢走（微信通知）时取词会打到错误的应用 | 取到别人的选区 | 取词前记录 `GetForegroundWindow` 的进程名并在日志里输出，便于排查；已实测到该噪声 |
+| R9 | 0.3.0 的跳板页 + helper 设置页未在 magpie 真窗口里看过 | 跳转/下拉的观感未知；跳转失败只有 5s 后的提示文案 | 需重开 magpie（或重装插件）后打开「划词翻译」页目视确认；接口层已全部实测（7.1） |
+| R10 | 远程访问（`magpie web`）打开插件页会是白页/提示 | helper 只听 `127.0.0.1`，也没声明 `page.service` | 明确不支持；页面会提示 helper 没连上 |
 
 ---
 

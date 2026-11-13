@@ -3,6 +3,10 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,10 +21,13 @@ import (
 	"magpie-translate/internal/winapi"
 )
 
-const Version = "0.2.1"
+const Version = "0.3.0"
 const maxTextRunes = 5000
 
 var ErrTooShort = errors.New("没选中文字")
+
+//go:embed settings.html settings.js
+var assets embed.FS
 
 type Server struct {
 	Port     int
@@ -30,9 +37,20 @@ type Server struct {
 	Settings func() store.Settings
 	Apply    func(store.Settings) error // PUT /api/settings 落地并热应用
 	OnHide   func()
+	// Token 每次启动随机生成，只注入到设置页里：带 Origin 的请求必须带它才放行。
+	Token string
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
+}
+
+// NewToken 生成设置页用的随机令牌。
+func NewToken() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(b)
 }
 
 // Result 是一次翻译的完整结果。浮窗和 HTTP 接口都走 Translate，不写两套逻辑。
@@ -51,12 +69,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/translate", s.handleTranslate)
 	mux.HandleFunc("/api/selection", s.handleSelection)
 	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/models", s.handleModels)
 	mux.HandleFunc("/api/clipboard", s.handleClipboard)
 	mux.HandleFunc("/api/hide", s.handleHide)
+	mux.HandleFunc("/settings.js", s.handleSettingsJS)
+	mux.HandleFunc("/", s.handleSettingsPage)
 	return s.guardHost(mux)
 }
 
-// guardHost 挡住浏览器页面：只认回环 Host；带 Origin 的请求一律拒绝（合法调用方都不是浏览器页面）；
+// guardHost 挡住浏览器页面：只认回环 Host。
+// 带 Origin 的请求只有本设置页（带 X-Helper-Token）能过，其余一律拒绝——
+// 设置页跑在沙箱帧里，是 opaque origin（字面量 null），不靠 token 就分不出它和别人的页面。
 // 写请求必须是 application/json，跨站页面就没法用 text/plain 简单请求绕过预检。
 func (s *Server) guardHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,9 +92,29 @@ func (s *Server) guardHost(next http.Handler) http.Handler {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		if r.Header.Get("Origin") != "" {
-			http.Error(w, "cross-origin request", http.StatusForbidden)
+		origin := r.Header.Get("Origin")
+		if r.Method == http.MethodOptions {
+			// 预检带不了自定义头（也就带不了 token），只能照声明放行；
+			// 真正的请求仍要 token，跨站页面过得了预检也用不了接口。
+			if origin != "" {
+				h := w.Header()
+				h.Set("Access-Control-Allow-Origin", origin)
+				h.Set("Access-Control-Allow-Headers", "x-helper-token, content-type")
+				h.Set("Access-Control-Allow-Methods", "GET, PUT, POST, OPTIONS")
+				h.Set("Access-Control-Max-Age", "600")
+				h.Set("Vary", "Origin")
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		if origin != "" {
+			if !s.authorized(r) {
+				http.Error(w, "cross-origin request", http.StatusForbidden)
+				return
+			}
+			h := w.Header()
+			h.Set("Access-Control-Allow-Origin", origin)
+			h.Set("Vary", "Origin")
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
@@ -80,6 +123,69 @@ func (s *Server) guardHost(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) authorized(r *http.Request) bool {
+	if s.Token == "" {
+		return false
+	}
+	got := r.Header.Get("X-Helper-Token")
+	return subtle.ConstantTimeCompare([]byte(got), []byte(s.Token)) == 1
+}
+
+// handleSettingsPage 提供设置页本身：插件页面只是个跳板，真正能联网的设置界面在这里。
+func (s *Server) handleSettingsPage(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" && r.URL.Path != "/settings" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	page, err := assets.ReadFile("settings.html")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	h.Set("Referrer-Policy", "no-referrer")
+	_, _ = w.Write(page)
+}
+
+func (s *Server) handleSettingsJS(w http.ResponseWriter, r *http.Request) {
+	js, err := assets.ReadFile("settings.js")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// 令牌只出现在这个文件里：别的站点读不到（跨源读被浏览器拦着），猜也猜不到。
+	body := strings.Replace(string(js), "__TOKEN__", s.Token, 1)
+	h := w.Header()
+	h.Set("Content-Type", "text/javascript; charset=utf-8")
+	h.Set("Cache-Control", "no-store")
+	_, _ = w.Write([]byte(body))
+}
+
+// handleModels 把网关的模型列表交给设置页做下拉。第一个就是网关的默认模型。
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	models, probe, err := s.Gateway.Models(r.Context())
+	if err != nil {
+		writeJSON(w, map[string]any{"models": []string{}, "error": err.Error()})
+		return
+	}
+	def := ""
+	if len(models) > 0 {
+		def = models[0]
+	}
+	writeJSON(w, map[string]any{
+		"models":  models,
+		"default": def,
+		"gateway": probe.Base,
+		"current": strings.TrimSpace(s.Settings().Model),
 	})
 }
 

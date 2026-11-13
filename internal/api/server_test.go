@@ -220,3 +220,90 @@ func TestSettingsIgnoreGlossaryPath(t *testing.T) {
 		t.Fatalf("glossary = %q, want empty", got)
 	}
 }
+
+// 设置页跑在沙箱帧里（Origin: null），只有带令牌的请求能过；别的页面照旧 403。
+func TestGuardAllowsOnlyOwnSettingsPage(t *testing.T) {
+	gw := fakeGateway(t, "x")
+	defer gw.Close()
+	s := newTestServer(t, gw, store.Defaults())
+	s.Token = "tok"
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	do := func(method, path, token string, body string) *http.Response {
+		t.Helper()
+		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		req.Header.Set("Origin", "null")
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("X-Helper-Token", token)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	if resp := do(http.MethodPut, "/api/settings", "", `{"target":"en"}`); resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("无令牌 status = %d, want 403", resp.StatusCode)
+	} else {
+		resp.Body.Close()
+	}
+
+	resp := do(http.MethodPut, "/api/settings", "tok", `{"target":"en"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("带令牌 status = %d, want 200", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "null" {
+		t.Fatalf("ACAO = %q, want null（沙箱页是 opaque origin）", got)
+	}
+
+	// 预检带不了令牌，但只声明允许的头，真正的请求仍要令牌。
+	pre := do(http.MethodOptions, "/api/settings", "", "")
+	defer pre.Body.Close()
+	if pre.StatusCode != http.StatusNoContent || !strings.Contains(pre.Header.Get("Access-Control-Allow-Headers"), "x-helper-token") {
+		t.Fatalf("预检 status = %d headers = %v", pre.StatusCode, pre.Header)
+	}
+}
+
+func TestModelsEndpointAndSettingsPage(t *testing.T) {
+	gw := fakeGateway(t, "x")
+	defer gw.Close()
+	s := newTestServer(t, gw, store.Defaults())
+	s.Token = "tok"
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/models")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	out := string(raw)
+	if !strings.Contains(out, `"group/default"`) || !strings.Contains(out, `"default":"group/default"`) {
+		t.Fatalf("models = %s", out)
+	}
+
+	page, err := http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	html, _ := io.ReadAll(page.Body)
+	page.Body.Close()
+	if !strings.Contains(string(html), "/settings.js") {
+		t.Fatalf("设置页应该引用 /settings.js")
+	}
+
+	js, err := http.Get(srv.URL + "/settings.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(js.Body)
+	js.Body.Close()
+	if !strings.Contains(string(body), "tok") || strings.Contains(string(body), "__TOKEN__") {
+		t.Fatal("settings.js 里的令牌没有被替换")
+	}
+}

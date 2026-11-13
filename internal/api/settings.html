@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>划词翻译 · 设置</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 20px 22px 32px;
+    font: 14px/1.7 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p.sub { margin: 0 0 16px; opacity: .7; font-size: 12px; }
+  label { display: block; margin: 16px 0 4px; font-size: 12px; opacity: .8; }
+  input, select, textarea {
+    width: 100%; box-sizing: border-box; padding: 7px 9px; font: inherit;
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    border-radius: 8px; background: transparent; color: inherit;
+  }
+  textarea { resize: vertical; }
+  button {
+    margin-top: 18px; padding: 8px 18px; font: inherit; font-weight: 600; cursor: pointer;
+    border: 0; border-radius: 8px; background: #2f6feb; color: #fff;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .tip { margin: 5px 0 0; font-size: 12px; opacity: .6; }
+  .bad { color: #e5484d; }
+  #status { margin-top: 12px; font-size: 12px; min-height: 1.5em; }
+  .foot { margin-top: 22px; font-size: 11px; opacity: .5; }
+  code { font-family: Consolas, monospace; }
+</style>
+</head>
+<body>
+  <h1>划词翻译</h1>
+  <p class="sub">选中文字后按热键，鼠标旁的浮窗流式显示译文。</p>
+
+  <label for="hotkey">全局热键</label>
+  <input id="hotkey" placeholder="Alt+D" spellcheck="false" autocomplete="off">
+  <p class="tip">写法：<code>Alt+D</code>、<code>Ctrl+Shift+T</code>、<code>F9</code>。保存后立即生效。</p>
+
+  <label for="target">目标语言</label>
+  <select id="target">
+    <option value="auto">自动判定</option>
+    <option value="zh">中文</option>
+    <option value="en">English</option>
+  </select>
+
+  <label for="model">模型</label>
+  <input id="model" list="models" placeholder="留空 = 网关默认模型" spellcheck="false" autocomplete="off">
+  <datalist id="models"></datalist>
+  <p class="tip" id="modelTip">正在读取网关模型…</p>
+
+  <label for="glossary">术语表</label>
+  <textarea id="glossary" rows="4" spellcheck="false" placeholder="magpie=喜鹊&#10;# 以 # 开头是注释"></textarea>
+  <p class="tip">每行 <code>原文=译文</code>，只钉死专有名词的译法（如 <code>magpie=喜鹊</code>），不影响普通句子。</p>
+
+  <button id="save" type="button">保存并生效</button>
+  <p id="status"></p>
+  <p class="foot" id="foot"></p>
+
+  <script src="/settings.js"></script>
+</body>
+</html>

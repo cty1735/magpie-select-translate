@@ -1,120 +1,43 @@
 <!doctype html>
 <html lang="zh">
 <head>
-  <meta charset="utf-8">
-  <title>划词翻译</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body {
-      margin: 0; padding: 20px 22px;
-      font: 14px/1.7 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
-    }
-    h1 { font-size: 16px; margin: 0 0 4px; }
-    p.sub { margin: 0 0 18px; opacity: .7; font-size: 12px; }
-    label { display: block; margin: 14px 0 4px; font-size: 12px; opacity: .8; }
-    input, select, textarea {
-      width: 100%; box-sizing: border-box; padding: 7px 9px; font: inherit;
-      border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-      border-radius: 8px; background: transparent; color: inherit;
-    }
-    .row { display: flex; gap: 10px; }
-    .row > div { flex: 1; }
-    #status { margin-top: 16px; font-size: 12px; opacity: .75; min-height: 1.4em; }
-    .hint { margin-top: 18px; font-size: 12px; opacity: .6; }
-    code { font-family: Consolas, monospace; }
-  </style>
+<meta charset="utf-8">
+<title>划词翻译</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 20px 22px;
+    font: 14px/1.7 "Microsoft YaHei UI", "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  p { margin: 0 0 8px; font-size: 12px; opacity: .7; }
+  code { font-family: Consolas, monospace; }
+</style>
 </head>
 <body>
   <h1>划词翻译</h1>
-  <p class="sub">选中文字后按热键，浮窗流式显示译文。</p>
-
-  <div class="row">
-    <div>
-      <label for="hotkey">热键（改完重启 helper 生效）</label>
-      <input id="hotkey" placeholder="Alt+D">
-    </div>
-    <div>
-      <label for="target">目标语言</label>
-      <select id="target">
-        <option value="auto">自动判定</option>
-        <option value="zh">中文</option>
-        <option value="en">English</option>
-      </select>
-    </div>
-  </div>
-
-  <label for="model">模型 id（留空用网关第一个模型）</label>
-  <input id="model" placeholder="group/deepseek-v4.1-flash">
-
-  <label for="glossary">术语表（每行 原文=译文，只存在 helper 的设置里，不读任何文件）</label>
-  <textarea id="glossary" rows="4" placeholder="magpie=喜鹊"></textarea>
-
-  <label for="port">helper 端口</label>
-  <input id="port" type="number" placeholder="3477">
-
-  <div id="status"></div>
-  <p class="hint">
-    设置页在沙箱里不能联网，所以这里只写 magpie 的选项；helper 下次启动时按这些选项运行，改完重启 helper 生效。
-    翻译状态请按热键看浮窗。helper 未安装时运行 <code>scripts/install.ps1</code>。
-  </p>
+  <p id="said">正在打开设置页…</p>
+  <p>如果一直没跳转，说明 helper 没起来：设置页由 helper 提供，模型列表也要从本地网关读。
+     跑一次 <code>scripts\install.ps1</code>，或重开一次 magpie。</p>
 
   <script>
-    const fields = ["hotkey", "model", "target", "glossary", "port"]
-    const $ = (id) => document.getElementById(id)
-    let timer = null
-
-    const status = (msg, ok) => {
-      $("status").textContent = msg
-      $("status").style.color = ok === false ? "#e5484d" : ""
-    }
-
-    async function boot() {
-      const api = window.magpie
-      if (!api || !api.options) {
-        status("不在 magpie 里打开时无法保存设置", false)
-        return
-      }
-      // magpie.ready 是个 Promise：宿主把语言/主题/选项准备好后才会 resolve。
+    // 带路页：页面在沙箱里（connect-src 'none'），除了解释跳转什么网都联不上，
+    // 所以不能先探活，直接跳到 helper 自己的设置页——那边能读网关模型、能写设置。
+    (async () => {
+      const fallback = 3477
+      let port = fallback
       try {
-        await api.ready
-      } catch {
-        /* 没有宿主时保持默认 */
-      }
-      try {
-        const opts = (await api.options.get()) || {}
-        for (const f of fields) if (opts[f] !== undefined) $(f).value = opts[f]
-        status("")
-      } catch (e) {
-        status("读取设置失败：" + e.message, false)
-        return
-      }
-      for (const f of fields) {
-        $(f).addEventListener("input", () => {
-          clearTimeout(timer)
-          timer = setTimeout(save, 1000)
-        })
-        $(f).addEventListener("change", () => {
-          clearTimeout(timer)
-          timer = setTimeout(save, 300)
-        })
-      }
-    }
-
-    async function save() {
-      const opts = {}
-      for (const f of fields) {
-        const v = $(f).value.trim()
-        if (v !== "") opts[f] = f === "port" ? Number(v) : v
-      }
-      try {
-        await window.magpie.options.set(opts)
-        status("已保存 · " + new Date().toLocaleTimeString())
-      } catch (e) {
-        status("保存失败：" + e.message, false)
-      }
-    }
-
-    boot()
+        const opts = await window.magpie?.options?.get?.()
+        if (opts && Number(opts.port) > 0) port = Number(opts.port)
+      } catch { /* 没有宿主就用默认端口 */ }
+      const target = "http://127.0.0.1:" + port + "/"
+      // WebKit/WebView2 跳不过去时不报错，页面会停在“正在打开”。5 秒后还没被替换就提示一下。
+      setTimeout(() => {
+        const said = document.getElementById("said")
+        if (said) said.textContent = "没能连上 helper（127.0.0.1:" + port + "）"
+      }, 5000)
+      location.replace(target)
+    })()
   </script>
 </body>
 </html>

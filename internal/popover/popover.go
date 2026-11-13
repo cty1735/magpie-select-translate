@@ -16,8 +16,9 @@ import (
 const (
 	widthLogical   = 420
 	minBodyLogical = 30
+	// maxBodyLogical 是整个内容区的最大高度（原文 + 译文共用一个滚动条），
+	// 超过它只加滚动条，窗口不再长高——再长就会顶到屏幕外，用户找不到底下的内容。
 	maxBodyLogical = 340
-	maxSrcLogical  = 40
 
 	idCopy  = 1
 	idClose = 2
@@ -28,6 +29,7 @@ const (
 	WM_MOUSELEAVE  = 0x02A3
 	WM_PAINT       = 0x000F
 	WM_MOUSEMOVE   = 0x0200
+	WM_MOUSEWHEEL  = 0x020A
 	WM_LBUTTONDOWN = 0x0201
 	WM_LBUTTONUP   = 0x0202
 )
@@ -46,7 +48,7 @@ type Popover struct {
 	thread uint32
 	dpi    uint32
 
-	hBody, hFooter          uintptr
+	hBody                   uintptr
 	fontBig, fontSmall      uintptr
 	bgBrush, hoverBrush     uintptr
 	pressBrush, borderBrush uintptr
@@ -121,10 +123,8 @@ func New() (*Popover, error) {
 
 	p.hBody = p.child("EDIT", winapi.WS_CHILD|winapi.WS_VISIBLE|winapi.WS_VSCROLL|
 		winapi.ES_MULTILINE|winapi.ES_READONLY|winapi.ES_AUTOVSCROLL|winapi.ES_NOHIDESEL)
-	p.hFooter = p.child("STATIC", winapi.WS_CHILD|winapi.WS_VISIBLE|winapi.SS_LEFT)
 
 	winapi.SetFont(p.hBody, p.fontBig)
-	winapi.SetFont(p.hFooter, p.fontSmall)
 
 	p.offscreen(hwnd)
 	// 先挪到屏幕外再显示：窗口必须是 WS_VISIBLE 才会绘制，隐藏状态下控件不会画。
@@ -191,19 +191,32 @@ func (p *Popover) Show(pt winapi.Point, source string) {
 		p.manual = false // 新的一次翻译重新跟随鼠标
 		p.copyLabel = "复制"
 		p.hoverBtn, p.pressBtn = 0, 0
-		winapi.SetWindowText(p.hFooter, source)
-		winapi.SetWindowText(p.hBody, "翻译中…")
+		winapi.SetWindowText(p.hBody, p.doc())
 		p.setHeader("翻译中…")
 		p.layout()
 		p.hookKeyboard()
 	})
 }
 
+// doc 把原文放在最上面、译文追加在后面，两者共用一个滚动条：
+// 早先原文单占一个 3 行高的 STATIC，长文本被硬裁掉又没有滚动条，用户看不全原文。
+func (p *Popover) doc() string {
+	switch {
+	case p.body == "" && p.source == "":
+		return "翻译中…"
+	case p.body == "":
+		return p.source + "\n\n翻译中…"
+	case p.source == "":
+		return p.body
+	}
+	return p.source + "\n\n" + p.body
+}
+
 // Append 追加一段译文（流式），并让编辑框滚到底。
 func (p *Popover) Append(delta string) {
 	p.Post(func() {
 		p.body += delta
-		winapi.SetWindowText(p.hBody, p.body)
+		winapi.SetWindowText(p.hBody, p.doc())
 		p.layout()
 		winapi.ScrollToEnd(p.hBody)
 	})
@@ -227,7 +240,7 @@ func (p *Popover) Progress(text string) {
 func (p *Popover) Fail(message string) {
 	p.Post(func() {
 		p.body = message
-		winapi.SetWindowText(p.hBody, message)
+		winapi.SetWindowText(p.hBody, p.doc())
 		p.setHeader("—")
 		p.layout()
 	})
@@ -311,8 +324,9 @@ func (p *Popover) layout() {
 	}
 
 	bodyH := p.px(minBodyLogical)
-	if p.body != "" {
-		h := winapi.MeasureText(p.hwnd, p.body, p.fontBig, inner-p.px(10), p.px(maxBodyLogical)) + p.px(6)
+	if text := p.doc(); text != "" {
+		// 量宽时减掉滚动条的宽度，否则长文本会多折一行、莫名其妙冒出条。
+		h := winapi.MeasureText(p.hwnd, text, p.fontBig, inner-p.px(18), p.px(maxBodyLogical)) + p.px(6)
 		// 高度按整行取整：半行会被窗口下边缘切掉，看着像内容丢了。
 		if line := winapi.MeasureText(p.hwnd, "测", p.fontBig, 1000, 1000); line > 1 {
 			h = h / line * line
@@ -329,19 +343,7 @@ func (p *Popover) layout() {
 	winapi.ProcMoveWindow.Call(p.hBody, uintptr(pad), uintptr(bodyY), uintptr(inner), uintptr(bodyH), 1)
 	// WS_VSCROLL 常驻：短文本时滚动条是灰的，长文本可以拖，用户不用猜有没有更多内容。
 
-	y := bodyY + bodyH + p.px(4)
-	if p.source != "" {
-		srcH := winapi.MeasureText(p.hwnd, p.source, p.fontSmall, inner-p.px(10), p.px(maxSrcLogical)) + p.px(4)
-		if srcH > p.px(maxSrcLogical) {
-			srcH = p.px(maxSrcLogical)
-		}
-		winapi.ProcMoveWindow.Call(p.hFooter, uintptr(pad), uintptr(y), uintptr(inner), uintptr(srcH), 1)
-		y += srcH
-	} else {
-		winapi.ProcMoveWindow.Call(p.hFooter, 0, 0, 0, 0, 1)
-	}
-
-	height := y + pad - 4
+	height := bodyY + bodyH + pad - p.px(4)
 	p.clientRect = winapi.Rect{Right: int32(width), Bottom: int32(height)}
 	p.place(width, height)
 	// 整窗擦除重绘：只靠 MoveWindow 的重绘位，高度变小/内容滚动时会留下上一次的残影。
@@ -466,14 +468,14 @@ func (p *Popover) wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 		}
 		return 0
 
-	case winapi.WM_CTLCOLORSTATIC, winapi.WM_CTLCOLOREDIT:
-		hdc := wp
-		winapi.ProcSetBkMode.Call(hdc, 1) // TRANSPARENT
-		color := p.fg
-		if lp != p.hBody {
-			color = p.dim
-		}
-		winapi.ProcSetTextColor.Call(hdc, color)
+	case WM_MOUSEWHEEL:
+		// 浮窗从不激活，滚轮落在内边距/标题上就没人处理；转给正文编辑框，整块浮窗都能滚。
+		winapi.ProcSendMessageW.Call(p.hBody, WM_MOUSEWHEEL, wp, lp)
+		return 0
+
+	case winapi.WM_CTLCOLOREDIT:
+		winapi.ProcSetBkMode.Call(wp, 1) // TRANSPARENT
+		winapi.ProcSetTextColor.Call(wp, p.fg)
 		return p.bgBrush
 
 	case winapi.WM_COMMAND:

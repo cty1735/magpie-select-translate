@@ -54,12 +54,17 @@ powershell -ExecutionPolicy Bypass -File scripts\build-plugin.ps1
     "titles": { "zh": "划词翻译", "en": "Translate" },
     "file": "page/index.html"
   },
-  "options": { "port": 3477, "hotkey": "Alt+D", "model": "", "target": "auto", "glossary": "" }
+  "options": { "port": 3477 }
 }
 ```
 
-**不要写 `page.service`**：那个字段是给"页面自己跳到本地服务"的插件用的（聊天页就是）。
-我们的页面是设置页，留在沙箱里只读写 `magpie.options`；helper 由 `server` 钩子拉起。
+页面只是跳板：`page/index.html` 读出 `options.port` 后 `location.replace` 到 helper 自己的设置页
+（模型下拉要实时读网关，沙箱页面连不上任何地址）。真正的设置存在 helper 的
+`%LOCALAPPDATA%\magpie-translate\settings.json`，`options` 里只留 `port` 一个字段——
+插件宿主重启时不能拿 options 里的旧值把用户在设置页刚改的配置盖回去。
+
+**不要写 `page.service`**：那是给"magpie web 远程访问"转发用的，helper 只听 127.0.0.1，
+声明了反而要维护远程路径。helper 由 `server` 钩子拉起。
 页面不读任何 magpie 数据，所以**不需要** `permissions`（读什么才声明什么，
 多声明会被审核挡下来）。
 
@@ -70,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-plugin.ps1
 ```json
 {
   "package": "@magpie-community/page-select-translate",
-  "name": "Select Translate",
+  "name": "magpie-select-translate",
   "kind": "page",
   "summary": {
     "en": "Select text anywhere and press a hotkey: a popover next to the cursor streams the translation from magpie's own models. Runs a local helper on 127.0.0.1 that does the selection capture, the popup and the gateway call; the hotkey, model, target language and glossary are set in the page. Windows only.",

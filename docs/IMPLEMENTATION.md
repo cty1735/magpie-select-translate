@@ -379,8 +379,7 @@ CSS 要点：
     "summary": { "zh": "选中即译，浮窗流式翻译。", "en": "Select-to-translate popover." },
     "page": { "title": "Translate", "file": "page/index.html",
               "service": { "port": 3477, "option": "port" } },
-    "options": { "port": 3477, "model": "", "target": "auto",
-                 "trigger": "hotkey", "hotkey": "Alt+D", "glossary": "" }
+    "options": { "port": 3477 }
   }
 }
 ```
@@ -412,7 +411,7 @@ export default {
 }
 ```
 
-设置页限制（务必遵守）：`sandbox` + `connect-src 'none'`，**页面内不能 fetch**；只读写 `magpie.options`；模型下拉靠 `magpie.read("providers:list")`，拿不到就让用户手填。
+设置页限制（务必遵守）：`sandbox` + `connect-src 'none'`，**页面内不能 fetch**，`magpie.read` 也拿不到模型列表。所以设置页由 helper 自己提供（`internal/api/settings.html`），magpie 页面只做跳板 `location.replace("http://127.0.0.1:<port>/")`；helper 端用启动时生成的 `X-Helper-Token` 放行 CORS，其余带 Origin 的请求一律 403。详见 `magpie-select-translate.md` 6.4。
 
 ---
 
