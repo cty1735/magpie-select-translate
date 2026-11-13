@@ -39,6 +39,7 @@ func main() {
 		hotkeyFlag   = flag.String("hotkey", "", "全局热键，默认 Alt+D")
 		blacklistFlg = flag.String("blacklist", "", "逗号分隔的进程黑名单，覆盖默认值")
 		glossaryFlag = flag.String("glossary-file", "", "术语表文件，每行 原文=译文")
+		glossaryText = flag.String("glossary-text", "", "术语表正文（插件设置页传进来，优先于 --glossary-file）")
 		noRestore    = flag.Bool("no-restore-clipboard", false, "取词后不还原剪贴板")
 		debugFlag    = flag.Bool("debug", false, "输出带微秒的调试日志")
 		versionFlag  = flag.Bool("version", false, "打印版本号")
@@ -72,7 +73,13 @@ func main() {
 		cfg.Blacklist = *blacklistFlg
 	}
 	if set["glossary-file"] {
-		cfg.GlossaryFile = *glossaryFlag
+		// 只在启动时由本机用户读一次，接口永远只接受正文，不接受路径。
+		if b, err := os.ReadFile(*glossaryFlag); err == nil {
+			cfg.GlossaryText = string(b)
+		}
+	}
+	if set["glossary-text"] {
+		cfg.GlossaryText = *glossaryText
 	}
 	if *noRestore {
 		cfg.RestoreClipboard = false

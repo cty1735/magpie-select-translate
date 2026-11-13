@@ -46,10 +46,11 @@ type Popover struct {
 	thread uint32
 	dpi    uint32
 
-	hBody, hFooter uintptr
+	hBody, hFooter          uintptr
 	fontBig, fontSmall      uintptr
 	bgBrush, hoverBrush     uintptr
 	pressBrush, borderBrush uintptr
+	borderColor             uintptr
 	fg, dim                 uintptr
 
 	clientRect winapi.Rect
@@ -84,7 +85,7 @@ type Popover struct {
 // New 必须在 LockOSThread 的主线程调用；之后所有窗口操作都在这个消息循环线程上。
 func New() (*Popover, error) {
 	p := &Popover{thread: winapi.CurrentThreadID(), dpi: winapi.DPI(0), copyLabel: "复制"}
-	p.fg, p.dim, p.bgBrush, p.hoverBrush, p.pressBrush, p.borderBrush = theme()
+	p.fg, p.dim, p.borderColor, p.bgBrush, p.hoverBrush, p.pressBrush, p.borderBrush = theme()
 
 	className := winapi.UTF16("magpie-translate-popover")
 	title := winapi.UTF16("translate")
@@ -389,7 +390,7 @@ func (p *Popover) wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 	case WM_PAINT:
 		hdc, ps := winapi.BeginPaint(hwnd)
 		winapi.FillRect(hdc, &p.clientRect, p.bgBrush)
-		winapi.FrameRect(hdc, &p.clientRect, p.borderBrush)
+		winapi.FrameRoundRect(hdc, &p.clientRect, p.px(12), p.borderColor)
 		winapi.TextLeft(hdc, p.headerText, &p.headerRect, p.fontSmall, p.dim)
 		p.paintButton(hdc, p.copyRect, idCopy, p.copyLabel)
 		p.paintButton(hdc, p.closeRect, idClose, "✕")
@@ -449,8 +450,8 @@ func (p *Popover) wndproc(hwnd, msg, wp, lp uintptr) uintptr {
 			break
 		}
 		// WM_NCHITTEST 的 lParam 是屏幕坐标（不是客户区坐标），早先直接当客户区用，
-	// 于是 pt.Y 永远是个很大的数，顶栏永远命中不到 HTCAPTION，窗口就拖不动了。
-	pt := winapi.ScreenPointToClient(hwnd, clientPoint(lp))
+		// 于是 pt.Y 永远是个很大的数，顶栏永远命中不到 HTCAPTION，窗口就拖不动了。
+		pt := winapi.ScreenPointToClient(hwnd, clientPoint(lp))
 		if p.buttonAt(pt) != 0 {
 			return winapi.HTCLIENT
 		}

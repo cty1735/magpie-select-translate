@@ -18,7 +18,7 @@ type Settings struct {
 	Hotkey           string `json:"hotkey"`
 	Trigger          string `json:"trigger"` // hotkey / select
 	Blacklist        string `json:"blacklist"`
-	GlossaryFile     string `json:"glossaryFile"`
+	GlossaryText     string `json:"glossary"` // 术语表正文；不存路径，接口给什么就只用什么，绝不按请求去读本地文件
 	RestoreClipboard bool   `json:"restoreClipboard"`
 }
 
@@ -76,14 +76,5 @@ func (s Settings) Save() error {
 	return os.WriteFile(Path(), append(b, '\n'), 0o644)
 }
 
-// Glossary 读术语表文件（每行 原文=译文，# 开头是注释）。
-func (s Settings) Glossary() string {
-	if s.GlossaryFile == "" {
-		return ""
-	}
-	b, err := os.ReadFile(s.GlossaryFile)
-	if err != nil {
-		return ""
-	}
-	return string(b)
-}
+// Glossary 返回术语表正文（每行 原文=译文，# 开头是注释）。
+func (s Settings) Glossary() string { return s.GlossaryText }

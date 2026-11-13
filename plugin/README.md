@@ -38,17 +38,20 @@ Ctrl+C 在这些程序里有副作用，命中时只提示「该应用不支持�
 | 键 | 说明 |
 |---|---|
 | `port` | helper 本地端口，默认 3477 |
-| `hotkey` | 全局热键，默认 `Alt+D`（改完要重启 helper） |
+| `hotkey` | 全局热键，默认 `Alt+D` |
 | `model` | 模型 id，留空用网关 `/v1/models` 的第一个 |
 | `target` | `auto` / `zh` / `en` |
-| `glossaryFile` | 术语表文件，每行 `原文=译文` |
+| `glossary` | 术语表正文，每行 `原文=译文` |
 
 设置页在沙箱里没有网络（`connect-src 'none'`），所以它只读写 `magpie.options`；
+插件在拉起 helper 时把这几项转成命令行参数，helper 落地成自己的 `settings.json`。
+改完要重启 helper（结束 `magpie-translate-helper.exe`，或重新加载插件）才生效。
 翻译状态请看浮窗本身。
 
 ## 隐私
 
-- helper 只监听 `127.0.0.1`，校验 `Host`。
+- helper 只监听 `127.0.0.1`，校验 `Host`；带浏览器 `Origin` 的请求一律拒绝，写请求必须是 `application/json`。
+- 网关密钥从 magpie 的 `caller-keys.json` 只读取用，只放内存，不落日志。
 - 日志只有时间、事件、耗时、字数，**不记原文**。
 - 取词后会把剪贴板全量还原（图片等非 HGLOBAL 格式除外）。
 
@@ -62,6 +65,7 @@ helper 只在 magpie 启动插件时被拉起，magpie 不开它就不会常驻�
 
 ## 更新
 
+- 0.2.1：修安全漏洞：本地接口拒绝带浏览器 `Origin` 的请求，写请求必须是 `application/json`；术语表只接收正文（`glossary`），不再按路径读本地文件。`package.json` 去掉 BOM。
 - 0.2.0：浮窗加了浅绿描边；正文改成整行取整、滚动条常驻，长译文不会再被切掉半行；顶部可以直接按住拖动（之前 `WM_NCHITTEST` 把屏幕坐标当客户区坐标用，拖不动）；标题改父窗口自绘，修掉连续取词时的残影。
 - 0.1.1：设置页和 `magpie.summary` 补全，能被 magpie 的 Discover 展示。
 

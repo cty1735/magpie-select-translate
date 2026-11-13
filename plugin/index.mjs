@@ -51,7 +51,13 @@ export default {
           "helper 未安装：运行仓库里的 scripts/install.ps1，或安装带 bin/helper.exe 的发行包",
       }
     }
-    spawn(exe, ["--port", String(port)], {
+    // 页面只能写 magpie.options，所以设置由这里转成命令行交给 helper（helper 落地成自己的 settings.json）
+    const args = ["--port", String(port)]
+    for (const k of ["hotkey", "model", "target", "glossary"]) {
+      const v = options?.[k]
+      if (v) args.push(`--${k === "glossary" ? "glossary-text" : k}`, String(v))
+    }
+    spawn(exe, args, {
       detached: true,
       stdio: "ignore",
       windowsHide: true,

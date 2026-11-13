@@ -66,22 +66,37 @@ func (p *Picker) Pick() (Result, error) {
 	winapi.ReleaseModifiers()
 	// 先清空，再等 Ctrl+C 写入：剪贴板是全局的，别的程序可能同时写，
 	// 只有"我们清空之后出现的内容"才可能是这次选区。
+	text := copyOnce(p.Timeout / 2)
+	if text == "" {
+		// Chrome/Electron 收到 Alt 后会停在菜单态，Ctrl+C 被吞（实测）。
+		// Esc 是唯一能把它踢出菜单态又不动选区的键。
+		winapi.SendEsc()
+		time.Sleep(80 * time.Millisecond)
+		text = copyOnce(p.Timeout / 2)
+	}
+	if text != "" {
+		res.Text = text
+		res.Millis = time.Since(start).Milliseconds()
+		return res, nil
+	}
+	res.Millis = time.Since(start).Milliseconds()
+	return res, ErrNoSelection
+}
+
+// copyOnce 清剪贴板、发 Ctrl+C，在 wait 内轮询取回文本。
+func copyOnce(wait time.Duration) string {
 	winapi.ClipboardClear()
 	winapi.SendCtrlC()
-
-	deadline := time.Now().Add(p.Timeout)
+	deadline := time.Now().Add(wait)
 	for time.Now().Before(deadline) {
 		if txt, err := winapi.ReadClipboardText(); err == nil {
 			if txt = Normalize(txt); txt != "" {
-				res.Text = txt
-				res.Millis = time.Since(start).Milliseconds()
-				return res, nil
+				return txt
 			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	res.Millis = time.Since(start).Milliseconds()
-	return res, ErrNoSelection
+	return ""
 }
 
 // Normalize 去掉首尾空白和拷贝带来的尾部换行，不合并中间换行（译文要保留段落）。

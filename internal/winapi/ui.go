@@ -43,6 +43,9 @@ var (
 	ProcSetBkMode          = gdi32.NewProc("SetBkMode")
 	ProcSetTextColor       = gdi32.NewProc("SetTextColor")
 	ProcCreateRoundRectRgn = gdi32.NewProc("CreateRoundRectRgn")
+	ProcCreatePen          = gdi32.NewProc("CreatePen")
+	ProcRoundRect          = gdi32.NewProc("RoundRect")
+	ProcGetStockObject     = gdi32.NewProc("GetStockObject")
 	ProcDeleteObject       = gdi32.NewProc("DeleteObject")
 	ProcSelectObject       = gdi32.NewProc("SelectObject")
 )
@@ -139,8 +142,6 @@ func WindowRect(hwnd uintptr) Rect {
 	return r
 }
 
-
-
 // UTF16 返回字符串的 UTF-16 指针。
 // 调用方必须把返回值活到 Win32 调用结束（用 runtime.KeepAlive），
 // 否则 GC 可能在调用中途回收缓冲区——这会让窗口文字偶发变空或乱码。
@@ -226,6 +227,28 @@ func SetRoundedRegion(hwnd uintptr, w, h, radius int) {
 	if rgn != 0 {
 		ProcSetWindowRgn.Call(hwnd, rgn, 1)
 	}
+}
+
+// FrameRoundRect 用 1px 实线沿 rc 画一条圆角边框，内部不填充。
+// 边框必须自己画成圆角：SetRoundedRegion 把四个角裁掉了，
+// 方角的 FrameRect 在角上会被裁断，看上去就是边框几个缺口。
+func FrameRoundRect(hdc uintptr, rc *Rect, radius int, color uintptr) {
+	const (
+		psSolid   = 0 // PS_SOLID
+		nullBrush = 5 // HOLLOW_BRUSH/NULL_BRUSH
+	)
+	pen, _, _ := ProcCreatePen.Call(psSolid, 1, color)
+	if pen == 0 {
+		return
+	}
+	oldPen, _, _ := ProcSelectObject.Call(hdc, pen)
+	hollow, _, _ := ProcGetStockObject.Call(nullBrush)
+	oldBrush, _, _ := ProcSelectObject.Call(hdc, hollow)
+	_, _, _ = ProcRoundRect.Call(hdc, uintptr(rc.Left), uintptr(rc.Top),
+		uintptr(rc.Right), uintptr(rc.Bottom), uintptr(radius), uintptr(radius))
+	_, _, _ = ProcSelectObject.Call(hdc, oldBrush)
+	_, _, _ = ProcSelectObject.Call(hdc, oldPen)
+	_, _, _ = ProcDeleteObject.Call(pen)
 }
 
 // PaintStruct 对应 Win32 的 PAINTSTRUCT。

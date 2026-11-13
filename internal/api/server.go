@@ -17,7 +17,7 @@ import (
 	"magpie-translate/internal/winapi"
 )
 
-const Version = "0.2.0"
+const Version = "0.2.1"
 const maxTextRunes = 5000
 
 var ErrTooShort = errors.New("没选中文字")
@@ -56,7 +56,8 @@ func (s *Server) Handler() http.Handler {
 	return s.guardHost(mux)
 }
 
-// guardHost 只认回环 Host，挡住浏览器里随便一个页面发来的跨站请求。
+// guardHost 挡住浏览器页面：只认回环 Host；带 Origin 的请求一律拒绝（合法调用方都不是浏览器页面）；
+// 写请求必须是 application/json，跨站页面就没法用 text/plain 简单请求绕过预检。
 func (s *Server) guardHost(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
@@ -67,6 +68,16 @@ func (s *Server) guardHost(next http.Handler) http.Handler {
 		if host != "127.0.0.1" && host != "localhost" && host != "::1" {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
+		}
+		if r.Header.Get("Origin") != "" {
+			http.Error(w, "cross-origin request", http.StatusForbidden)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(strings.ToLower(ct), "application/json") {
+				http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
+				return
+			}
 		}
 		next.ServeHTTP(w, r)
 	})

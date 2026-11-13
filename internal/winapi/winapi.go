@@ -55,6 +55,7 @@ var (
 	ProcUnhookWindowsHookEx      = user32.NewProc("UnhookWindowsHookEx")
 	ProcCallNextHookEx           = user32.NewProc("CallNextHookEx")
 	ProcKeybdEvent               = user32.NewProc("keybd_event")
+	ProcMapVirtualKeyW           = user32.NewProc("MapVirtualKeyW")
 	ProcGetKeyState              = user32.NewProc("GetKeyState")
 	ProcGetAsyncKeyState         = user32.NewProc("GetAsyncKeyState")
 	ProcGetCurrentThreadID       = kernel32.NewProc("GetCurrentThreadId")
@@ -103,6 +104,7 @@ const (
 	VKAlt   = 0x12
 	VKLWin  = 0x5B
 	VKRWin  = 0x5C
+	VKEsc   = VKEscape
 	VKC     = 0x43
 
 	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
@@ -164,27 +166,71 @@ func ForegroundProcessName() string {
 	return strings.ToLower(full)
 }
 
-// ReleaseModifiers 把用户可能还按着的修饰键补上 keyup。
+// scanCode 把虚拟键换成硬件扫描码。
+// Chromium 系（Chrome/Edge/Electron）按扫描码识别按键：wScan=0 的 keyup
+// 清不掉它自己的修饰键状态，合成的 Ctrl+C 会被当成 Ctrl+Alt+C 而失效。
+func scanCode(vk uintptr) uintptr {
+	sc, _, _ := ProcMapVirtualKeyW.Call(vk, 0) // MAPVK_VK_TO_VSC
+	return sc
+}
+
+func key(vk uintptr, up bool) {
+	flags := uintptr(0)
+	if up {
+		flags = KEYEVENTF_KEYUP
+	}
+	_, _, _ = ProcKeybdEvent.Call(vk, scanCode(vk), flags, 0)
+}
+
+// ReleaseModifiers 等用户松开热键的修饰键，再兜底补 keyup。
 // 热键触发时 Alt 还按着，直接合成 Ctrl+C 会变成 Ctrl+Alt+C，很多程序不认。
 // 必须用 GetAsyncKeyState：GetKeyState 只反映调用线程自己的按键状态，
 // 而取词跑在新建的 goroutine 线程上，那里永远是"没按"。
+// 优先等物理松开：Chrome 收到 Alt 按下后会进菜单态，合成的 keyup 清不掉它，
+// 后续 Ctrl+C 被吞（实测），只有真的 keyup 才能退出。
 func ReleaseModifiers() {
+	if waitModifiersUp(400 * time.Millisecond) {
+		return
+	}
 	for _, vk := range []uintptr{VKAlt, VKCtrl, VKShift, VKLWin, VKRWin} {
-		state, _, _ := ProcGetAsyncKeyState.Call(vk)
-		if int16(state) < 0 { // 高位为 1 表示正按下
-			_, _, _ = ProcKeybdEvent.Call(vk, 0, KEYEVENTF_KEYUP, 0)
+		if modifierDown(vk) {
+			key(vk, true)
 		}
 	}
 	// 留一点时间让目标窗口处理 keyup，再发 Ctrl+C（否则 Notepad 之类还在菜单态）。
 	time.Sleep(40 * time.Millisecond)
 }
 
+func modifierDown(vk uintptr) bool {
+	state, _, _ := ProcGetAsyncKeyState.Call(vk)
+	return int16(state) < 0 // 高位为 1 表示正按下
+}
+
+func waitModifiersUp(max time.Duration) bool {
+	for deadline := time.Now().Add(max); ; {
+		if !modifierDown(VKAlt) && !modifierDown(VKCtrl) && !modifierDown(VKShift) &&
+			!modifierDown(VKLWin) && !modifierDown(VKRWin) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // SendCtrlC 合成一次 Ctrl+C。调用前必须 ReleaseModifiers。
 func SendCtrlC() {
-	_, _, _ = ProcKeybdEvent.Call(VKCtrl, 0, 0, 0)
-	_, _, _ = ProcKeybdEvent.Call(VKC, 0, 0, 0)
-	_, _, _ = ProcKeybdEvent.Call(VKC, 0, KEYEVENTF_KEYUP, 0)
-	_, _, _ = ProcKeybdEvent.Call(VKCtrl, 0, KEYEVENTF_KEYUP, 0)
+	key(VKCtrl, false)
+	key(VKC, false)
+	key(VKC, true)
+	key(VKCtrl, true)
+}
+
+// SendEsc 合成一次 Esc：把停在 Alt 菜单态的窗口踢回正常状态，不影响选区。
+func SendEsc() {
+	key(VKEsc, false)
+	key(VKEsc, true)
 }
 
 // CurrentThreadID 供消息循环投递 WM_APP 用。

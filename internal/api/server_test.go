@@ -146,6 +146,7 @@ func TestSettingsRoundTrip(t *testing.T) {
 
 	body := `{"port":3477,"target":"en","hotkey":"Ctrl+Shift+T","blacklist":"a.exe","restoreClipboard":false}`
 	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -157,5 +158,65 @@ func TestSettingsRoundTrip(t *testing.T) {
 	got := s.Settings() // 用服务端自己的副本校验，参数是按值传进去的
 	if got.Target != "en" || got.Hotkey != "Ctrl+Shift+T" || got.RestoreClipboard {
 		t.Fatalf("cfg not applied: %+v", got)
+	}
+}
+
+func TestGuardRejectsBrowserOrigin(t *testing.T) {
+	gw := fakeGateway(t, "x")
+	defer gw.Close()
+	s := newTestServer(t, gw, store.Defaults())
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/ping", nil)
+	req.Header.Set("Origin", "https://evil.example")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", resp.StatusCode)
+	}
+}
+
+func TestWritesRequireJSON(t *testing.T) {
+	gw := fakeGateway(t, "x")
+	defer gw.Close()
+	s := newTestServer(t, gw, store.Defaults())
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/api/settings", "text/plain", strings.NewReader(`{"target":"en"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", resp.StatusCode)
+	}
+}
+
+func TestSettingsIgnoreGlossaryPath(t *testing.T) {
+	gw := fakeGateway(t, "x")
+	defer gw.Close()
+	s := newTestServer(t, gw, store.Defaults())
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	// 跨站页面曾用这个字段把任意本地文件内容送进 prompt；现在只认正文，路径直接忽略。
+	body := `{"glossaryFile":"C:\\Windows\\win.ini"}`
+	req, _ := http.NewRequest(http.MethodPut, srv.URL+"/api/settings", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	if got := s.Settings().Glossary(); got != "" {
+		t.Fatalf("glossary = %q, want empty", got)
 	}
 }

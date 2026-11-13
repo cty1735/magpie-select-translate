@@ -35,6 +35,9 @@ Write-Host "==> helper.exe $size MB"
 Copy-Item -Force (Join-Path $PSScriptRoot "uninstall.ps1") (Join-Path $bin "uninstall.ps1")
 
 Write-Host "==> npm pack"
+# Bun 的 JSON.parse 和 magpie 的 json.Unmarshal 都拒收 BOM：打包前强制无 BOM
+$pkgJson = Join-Path $plugin "package.json"
+[IO.File]::WriteAllText($pkgJson, [IO.File]::ReadAllText($pkgJson), (New-Object System.Text.UTF8Encoding($false)))
 Push-Location $plugin
 try {
     $tgz = npm pack --silent 2>$null | Select-Object -Last 1

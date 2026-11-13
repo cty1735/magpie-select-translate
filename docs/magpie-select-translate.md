@@ -384,7 +384,7 @@ export default {
 
 - [ ] npm `magpie-select-translate`，`keywords: ["magpie-plugin","magpie"]`
 - [ ] GitHub 仓库打 `magpie-plugin` topic，release 挂 `helper-windows-amd64.exe` + SHA256
-- [ ] community registry 条目：`{"package":"…","name":"划词翻译","kind":"page","community":true,"icon":"…","summary":{"en":"…","zh":"…"}}`
+- [ ] community registry 条目：`{"package":"…","name":"划词翻译","kind":"page","icon":"…","summary":{"en":"…","zh":"…"}}`
 - [ ] README：gif 演示、取词覆盖矩阵、黑名单说明、隐私说明
 - [ ] 卸载干净：`magpie plugin rm` + 删自启项 + 删 `%LOCALAPPDATA%\magpie-translate`
 

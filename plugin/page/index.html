@@ -12,7 +12,7 @@
     h1 { font-size: 16px; margin: 0 0 4px; }
     p.sub { margin: 0 0 18px; opacity: .7; font-size: 12px; }
     label { display: block; margin: 14px 0 4px; font-size: 12px; opacity: .8; }
-    input, select {
+    input, select, textarea {
       width: 100%; box-sizing: border-box; padding: 7px 9px; font: inherit;
       border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
       border-radius: 8px; background: transparent; color: inherit;
@@ -46,20 +46,20 @@
   <label for="model">模型 id（留空用网关第一个模型）</label>
   <input id="model" placeholder="group/deepseek-v4.1-flash">
 
-  <label for="glossaryFile">术语表文件（每行 原文=译文）</label>
-  <input id="glossaryFile" placeholder="D:\work\glossary.txt">
+  <label for="glossary">术语表（每行 原文=译文，只存在 helper 的设置里，不读任何文件）</label>
+  <textarea id="glossary" rows="4" placeholder="magpie=喜鹊"></textarea>
 
   <label for="port">helper 端口</label>
   <input id="port" type="number" placeholder="3477">
 
   <div id="status"></div>
   <p class="hint">
-    设置页在沙箱里不能联网，所以这里只读写 magpie 的选项；翻译状态请按热键看浮窗。
-    helper 未安装时运行 <code>scripts/install.ps1</code>。
+    设置页在沙箱里不能联网，所以这里只写 magpie 的选项；helper 下次启动时按这些选项运行，改完重启 helper 生效。
+    翻译状态请按热键看浮窗。helper 未安装时运行 <code>scripts/install.ps1</code>。
   </p>
 
   <script>
-    const fields = ["hotkey", "model", "target", "glossaryFile", "port"]
+    const fields = ["hotkey", "model", "target", "glossary", "port"]
     const $ = (id) => document.getElementById(id)
     let timer = null
 

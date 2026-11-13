@@ -54,7 +54,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-plugin.ps1
     "titles": { "zh": "划词翻译", "en": "Translate" },
     "file": "page/index.html"
   },
-  "options": { "port": 3477, "hotkey": "Alt+D", "model": "", "target": "auto", "glossaryFile": "" }
+  "options": { "port": 3477, "hotkey": "Alt+D", "model": "", "target": "auto", "glossary": "" }
 }
 ```
 
@@ -72,7 +72,6 @@ powershell -ExecutionPolicy Bypass -File scripts\build-plugin.ps1
   "package": "@magpie-community/page-select-translate",
   "name": "Select Translate",
   "kind": "page",
-  "community": true,
   "summary": {
     "en": "Select text anywhere and press a hotkey: a popover next to the cursor streams the translation from magpie's own models. Runs a local helper on 127.0.0.1 that does the selection capture, the popup and the gateway call; the hotkey, model, target language and glossary are set in the page. Windows only.",
     "zh": "在任意程序里选中文字按热键，鼠标旁的浮窗流式显示 magpie 模型的译文。在本机 127.0.0.1 跑一个 helper，负责取词、浮窗和调网关；热键、模型、目标语言、术语表在页面里设置。仅支持 Windows。"

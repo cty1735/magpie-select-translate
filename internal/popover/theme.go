@@ -16,8 +16,8 @@ func brush(color uintptr) uintptr {
 	return h
 }
 
-// theme 跟随系统深/浅色，返回前景色、次要文字色，以及背景/悬停/按下/边框四个画刷。
-func theme() (fg, dim, bg, hover, press, border uintptr) {
+// theme 跟随系统深/浅色，返回前景色、次要文字色、边框颜色，以及背景/悬停/按下/边框四个画刷。
+func theme() (fg, dim, borderColor, bg, hover, press, border uintptr) {
 	light := true
 	if k, err := registry.OpenKey(registry.CURRENT_USER,
 		`Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE); err == nil {
@@ -36,5 +36,5 @@ func theme() (fg, dim, bg, hover, press, border uintptr) {
 		bgc, hovc, prsc = colorref(30, 31, 34), colorref(43, 45, 50), colorref(56, 59, 65)
 		brdc = colorref(74, 138, 100) // 深色下同色系压暗一点，免得发荧光
 	}
-	return fg, dim, brush(bgc), brush(hovc), brush(prsc), brush(brdc)
+	return fg, dim, brdc, brush(bgc), brush(hovc), brush(prsc), brush(brdc)
 }

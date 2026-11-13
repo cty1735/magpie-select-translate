@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "magpie-select-translate",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "划词翻译：选中文字按热键，鼠标旁浮窗流式显示 magpie 模型的译文。Select-to-translate popover for magpie: hit a hotkey on any selection and the translation streams next to your cursor.",
   "type": "module",
   "main": "./index.mjs",
@@ -41,7 +41,7 @@
       "hotkey": "Alt+D",
       "model": "",
       "target": "auto",
-      "glossaryFile": ""
+      "glossary": ""
     }
   }
 }
