@@ -38,13 +38,16 @@ console.log("base commit", head.sha, "tree", baseTree)
 
 const entries = []
 for (const f of files) {
+  // Windows 上命令行偶尔给出反斜杠路径，原样发给 API 会在树上造出 "a\b.go" 这种条目，
+  // 之后 Windows 检出直接报 invalid path。统一成 /。
+  const p = f.replace(/\\/g, "/")
   const buf = fs.readFileSync(f)
   const blob = await api(`/repos/${OWNER}/${REPO}/git/blobs`, "POST", {
     content: buf.toString("base64"),
     encoding: "base64",
   })
-  entries.push({ path: f, mode: "100644", type: "blob", sha: blob.sha })
-  console.log("blob", f, blob.sha, buf.length, "bytes")
+  entries.push({ path: p, mode: "100644", type: "blob", sha: blob.sha })
+  console.log("blob", p, blob.sha, buf.length, "bytes")
 }
 
 const tree = await api(`/repos/${OWNER}/${REPO}/git/trees`, "POST", {
