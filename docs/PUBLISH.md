@@ -70,7 +70,7 @@ powershell -ExecutionPolicy Bypass -File scripts\build-plugin.ps1
 ```json
 {
   "package": "@magpie-community/page-select-translate",
-  "name": "Select Translate",
+  "name": "magpie-select-translate",
   "kind": "page",
   "summary": {
     "en": "Select text anywhere and press a hotkey: a popover next to the cursor streams the translation from magpie's own models. Runs a local helper on 127.0.0.1 that does the selection capture, the popup and the gateway call; the hotkey, model, target language and glossary are set in the page. Windows only.",

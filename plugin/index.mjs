@@ -18,13 +18,13 @@ const alive = async (port) => {
   }
 }
 
-// 优先用已安装（%LOCALAPPDATA%）的那份；npm 包自带 bin/helper.exe 时就地装过去。
-// 装到固定目录是为了让设置、日志、卸载脚本只有一份。
+// 包里带了 bin/helper.exe 就以包里为准（能跑到这里说明端口上没有活着的 helper）：
+// 早先是"已装过就沿用"，结果老用户升级插件后永远停在第一次装的那份旧 exe。
+// 装不进去（旧 helper 还留着文件锁）就退回用已装的，至少能用。
 const ensureHelper = () => {
   const installed = join(home, "helper.exe")
-  if (existsSync(installed)) return installed
   const bundled = join(here, "bin", "helper.exe")
-  if (!existsSync(bundled)) return ""
+  if (!existsSync(bundled)) return existsSync(installed) ? installed : ""
   try {
     mkdirSync(home, { recursive: true })
     copyFileSync(bundled, installed)
@@ -32,7 +32,7 @@ const ensureHelper = () => {
     const uninstall = join(here, "bin", "uninstall.ps1")
     if (existsSync(uninstall)) copyFileSync(uninstall, join(home, "uninstall.ps1"))
   } catch {
-    return bundled // 装不过去就直接跑包里的那份
+    return existsSync(installed) ? installed : bundled
   }
   return installed
 }

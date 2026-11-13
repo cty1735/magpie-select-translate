@@ -22,7 +22,7 @@
     "magpie": ">=0.1.1340"
   },
   "magpie": {
-    "name": "Select Translate",
+    "name": "magpie-select-translate",
     "summary": {
       "en": "Select text anywhere and press a hotkey: a popover next to the cursor streams the translation from magpie's own models. Ships the Windows helper, so there is nothing else to install.",
       "zh": "在任意程序里选中文字按热键，鼠标旁的浮窗流式显示 magpie 模型的译文。包内自带 Windows helper，装上就能用。"
